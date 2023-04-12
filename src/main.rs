@@ -5,18 +5,17 @@ use uuid::Uuid;
 
 mod backend;
 
-use backend::{Params, Request, App, start_process_thread};
+use backend::{Params, Request, App, start_actors};
 
 #[tokio::main]
 async fn main() {
 
     let (tx, rx) = tokio::sync::mpsc::channel(100);
-
     let queue = Arc::new(Mutex::new(vec![]));
-
     let response = Arc::new(Mutex::new(HashMap::default()));
 
-    start_process_thread(queue.clone(), rx, response.clone());
+    start_actors(queue.clone(), rx, response.clone());
+    
     let shared_state = Arc::new( 
         App {
             queue,

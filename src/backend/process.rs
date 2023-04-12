@@ -5,32 +5,26 @@ use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
 use crate::backend::{QUEUE_MAX_SIZE, QUEUE_MAX_WAIT_TIME, Request, Response, RESPONSE_CLEANING_TIME};
 
-
-
-pub fn start_process_thread(
+/// Start the main actors
+/// 1. Producer => Collect user requests in batches
+/// 2. Consumer => Run processing on such requests
+/// 3. Cleaner  => Clean-up responses after some time (TTL)
+pub fn start_actors(
     req_queue: Arc<Mutex<Vec<Request>>>,
-    mut rx: Receiver<Request>,
+    rx: Receiver<Request>,
     response: Arc<Mutex<HashMap<String, Response>>>
 ) {
 
+    start_producer(rx, req_queue.clone(), response.clone() );
+    start_consumer(req_queue.clone(), response.clone() );
+    start_cleaner(response.clone());
 
-    let req_queue_1 = req_queue.clone();
-    let response_1 = response.clone();
-    tokio::spawn(async move {
-        println!("SPAWNED TEMPORIZED CONSUMER");
+}
 
-        let mut stream = IntervalStream::new(time::interval(std::time::Duration::from_millis(QUEUE_MAX_WAIT_TIME)));
-
-        // Flush the queue if window time is over.
-        while let Some(_ts) = stream.next().await {
-            let mut _queue = req_queue_1.lock().unwrap();
-            consume(_queue, response_1.clone());
-        }
-        
-    });
-    
-    cleanup_response(response.clone());
-
+/// Producer actor.
+/// Collect user requests in a temporized and fixed-sized queue.
+/// Also, act as a consumer if the queue size is excedeed after the last insertion.
+fn start_producer(mut rx: Receiver<Request>, req_queue: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, Response>>>) {
     tokio::spawn(async move {
         
         println!("SPAWNED PRODUCER THREAD");
@@ -52,27 +46,26 @@ pub fn start_process_thread(
     });
 }
 
+/// Consumer actor.
+/// Process batched request if timeout is reached.
+fn start_consumer(req_queue: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, Response>>>) {
+    tokio::spawn(async move {
+        println!("SPAWNED TEMPORIZED CONSUMER");
 
-fn consume(mut queue: MutexGuard<Vec<Request>>, response: Arc<Mutex<HashMap<String, Response>>>) {
-    let queue_len = queue.len();
+        let mut stream = IntervalStream::new(time::interval(std::time::Duration::from_millis(QUEUE_MAX_WAIT_TIME)));
 
-    if queue_len == 0 {
-        return;
-    }
-
-    println!("START PROCESSING {} elements.", queue_len);
-    for r in queue.iter().collect::<Vec<&Request>>().into_iter() {
-        let r = r.clone();
-        response.lock().unwrap().insert(r.uuid, Response { 
-            data: "hi".into(),
-            produced_time: std::time::Instant::now()
-        });
-    };
-
-    queue.clear();
+        // Flush the queue if window time is over.
+        while let Some(_ts) = stream.next().await {
+            let mut _queue = req_queue.lock().unwrap();
+            consume(_queue, response.clone());
+        }
+    
+    });
 }
 
-fn cleanup_response(response: Arc<Mutex<HashMap<String, Response>>>) {
+/// Cleaner actor.
+/// Clean up stale responses after some time (TTL)
+fn start_cleaner(response: Arc<Mutex<HashMap<String, Response>>>) {
         
     let response_2 = response.clone();
 
@@ -103,4 +96,26 @@ fn cleanup_response(response: Arc<Mutex<HashMap<String, Response>>>) {
 
         }
     });
+}
+
+/// Processing logic.
+/// Do your custom, batched ML predictions here.
+fn consume(mut batch: MutexGuard<Vec<Request>>, response: Arc<Mutex<HashMap<String, Response>>>) {
+    let batch_size = batch.len();
+
+    if batch_size == 0 {
+        return;
+    }
+
+    println!("START PROCESSING {} elements.", batch_size);
+    // DO the actual heavy lifting here
+    for r in batch.iter().collect::<Vec<&Request>>().into_iter() {
+        let r = r.clone();
+        response.lock().unwrap().insert(r.uuid, Response { 
+            data: "hi".into(),
+            produced_time: std::time::Instant::now()
+        });
+    };
+
+    batch.clear();
 }
