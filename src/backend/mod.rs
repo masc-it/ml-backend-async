@@ -1,5 +1,5 @@
-mod schema;
 mod process;
+mod schema;
 
 pub use schema::*;
 
