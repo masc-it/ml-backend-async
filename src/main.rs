@@ -30,7 +30,7 @@ async fn main() {
     });
 
     let app = Router::new()
-        .route("/", get(get_queue))
+        .route("/", get(get_predict))
         .route("/get", get(get_retrieve))
         .with_state(shared_state);
 
@@ -42,20 +42,26 @@ async fn main() {
         .unwrap();
 }
 
-async fn get_queue(State(state): State<Arc<App>>) -> String {
+
+/// GET - Prediction endpoint
+/// This will immediately return a task ID.
+async fn get_predict(State(state): State<Arc<App>>) -> String {
     let uuid = Uuid::new_v4().to_string();
 
     _ = state
         .tx
         .send(Request {
             uuid: uuid.clone(),
-            data: "HI".into(),
+            data: "INPUT DATA FROM USER".into(),
         })
         .await;
 
     uuid
 }
 
+/// GET - Retrieve a Task output given an ID. <br>
+/// You can periodically poll this endpoint 
+/// to check if your prediction is ready or not.
 async fn get_retrieve(Query(params): Query<Params>, State(state): State<Arc<App>>) -> String {
     let id = &params.id;
     let mut sink = state.response.lock().unwrap();
