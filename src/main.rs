@@ -3,6 +3,7 @@ use axum::{
     routing::get,
     Router,
 };
+use prediction::{prediction_client::PredictionClient, PredictionRequest};
 
 use std::{
     collections::HashMap,
@@ -15,8 +16,14 @@ mod backend;
 
 use backend::{start_actors, App, Params, Request};
 
+pub mod prediction {
+    tonic::include_proto!("prediction");
+}
+
 #[tokio::main]
 async fn main() {
+    
+    test_grpc().await;
     let (tx, rx) = tokio::sync::mpsc::channel(100);
     let queue = Arc::new(Mutex::new(vec![]));
     let response = Arc::new(Mutex::new(HashMap::default()));
@@ -42,6 +49,16 @@ async fn main() {
         .unwrap();
 }
 
+
+async fn test_grpc() {
+    let mut client = PredictionClient::connect("http://[::1]:8080").await.unwrap();
+
+    let request = tonic::Request::new(PredictionRequest {
+        input: "hellooo".into()
+      });
+      let response = client.predict(request).await.unwrap();
+      println!("{}", response.into_inner().prediction);
+}
 
 /// GET - Prediction endpoint
 /// This will immediately return a task ID.
