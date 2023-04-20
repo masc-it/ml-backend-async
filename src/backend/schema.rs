@@ -5,9 +5,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-pub static QUEUE_MAX_SIZE: usize = 10;
-pub static QUEUE_MAX_WAIT_TIME: u64 = 10000; //ms
-pub static RESPONSE_CLEANING_TIME: u64 = 1000 * 20 * 1; // clean response map every 30 minutes
+pub static QUEUE_MAX_SIZE: usize = 128;
+pub static QUEUE_MAX_WAIT_TIME: u64 = 500; //ms
+pub static RESPONSE_CLEANING_TIME: u64 = 1000 * 60 * 30; // clean response map every 30 minutes
 
 #[derive(Debug, Clone)]
 pub struct Request {

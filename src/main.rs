@@ -39,6 +39,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(get_predict))
         .route("/get", get(get_retrieve))
+        .route("/size", get(get_size))
         .with_state(shared_state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 8000));
@@ -89,4 +90,10 @@ async fn get_retrieve(Query(params): Query<Params>, State(state): State<Arc<App>
 
     sink.remove(id);
     res
+}
+
+async fn get_size(State(state): State<Arc<App>>) -> String {
+
+    let sink = state.response.lock().unwrap();
+    sink.len().to_string()
 }

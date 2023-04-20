@@ -44,7 +44,7 @@ fn start_producer(
                 queue_len = _queue.len();
             }
 
-            println!("{} elements in queue awaiting", &queue_len);
+            //println!("{} elements in queue awaiting", &queue_len);
 
             // Flush the queue if full
             if queue_len >= QUEUE_MAX_SIZE {
@@ -118,9 +118,10 @@ fn consume(batch: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, 
     let batch = batch.clone();
     let response = response.clone();
     tokio::spawn(async move {
+        let batch_size;
         {
             let batch = batch.lock().unwrap();
-            let batch_size = batch.len();
+            batch_size = batch.len();
 
             if batch_size == 0 {
                 return;
@@ -131,24 +132,23 @@ fn consume(batch: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, 
 
         match client {
             Ok(mut client) => {
-                println!("START PROCESSING {} elements.", 10);
+                println!("START PROCESSING {} elements.", batch_size);
                 // DO the actual heavy lifting here
-
-                let batch_copy;
-                {
-                    let mut batch = batch.lock().unwrap();
-                    batch_copy = batch.iter().map(|r| r.clone()).collect::<Vec<Request>>(); //.clone();
-                    batch.clear();
-                }
 
                 let mut inputs = vec![];
                 let mut uuids = vec![];
-                for req in batch_copy {
+                {
+                    let mut batch = batch.lock().unwrap();
+                    for req in batch.iter() {
+                        inputs.push(req.data.clone());
+                        uuids.push(req.uuid.clone());
+                    }
 
-                    inputs.push(req.data);
-                    uuids.push(req.uuid);
+                    batch.clear();
+                    drop(batch);
                 }
-                
+
+                let t0 = std::time::Instant::now();
                 let pred_request = PredictionRequest { input: inputs, uuid: uuids };
                 // unroll batch
                 let request = tonic::Request::new(pred_request);
@@ -172,6 +172,7 @@ fn consume(batch: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, 
                                 },
                             );
                         }
+                        println!("got response in {}", t0.elapsed().as_millis());
                         
                     }
                     Err(_) => todo!(),
