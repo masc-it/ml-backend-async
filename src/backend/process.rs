@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Mutex},
 };
 
 use tokio::{sync::mpsc::Receiver, time};
@@ -48,10 +48,7 @@ fn start_producer(
 
             // Flush the queue if full
             if queue_len >= QUEUE_MAX_SIZE {
-                let req_queue_c = req_queue.clone();
-                let response_c = response.clone();
-
-                consume(req_queue_c, response_c);
+                consume(req_queue.clone(), response.clone());
             }
         }
     });
@@ -122,7 +119,7 @@ fn consume(batch: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, 
     let response = response.clone();
     tokio::spawn(async move {
         {
-            let mut batch = batch.lock().unwrap();
+            let batch = batch.lock().unwrap();
             let batch_size = batch.len();
 
             if batch_size == 0 {
