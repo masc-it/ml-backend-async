@@ -6,8 +6,9 @@ use std::{
 use tokio::{sync::mpsc::Receiver, time};
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
 
-use crate::backend::{
-    Request, Response, QUEUE_MAX_SIZE, QUEUE_MAX_WAIT_TIME, RESPONSE_CLEANING_TIME,
+use crate::{
+    backend::{Request, Response, QUEUE_MAX_SIZE, QUEUE_MAX_WAIT_TIME, RESPONSE_CLEANING_TIME},
+    prediction::{prediction_client::PredictionClient, PredictionRequest},
 };
 
 /// Start the main actors
@@ -36,16 +37,21 @@ fn start_producer(
         println!("SPAWNED PRODUCER THREAD");
 
         while let Some(data) = rx.recv().await {
-            let mut _queue = req_queue.lock().unwrap();
+            let queue_len;
+            {
+                let mut _queue = req_queue.lock().unwrap();
+                _queue.push(data);
+                queue_len = _queue.len();
+            }
 
-            _queue.push(data);
-
-            println!("{} elements in queue awaiting", _queue.len());
-            let queue_len = _queue.len();
+            println!("{} elements in queue awaiting", &queue_len);
 
             // Flush the queue if full
             if queue_len >= QUEUE_MAX_SIZE {
-                consume(_queue, response.clone());
+                let req_queue_c = req_queue.clone();
+                let response_c = response.clone();
+
+                consume(req_queue_c, response_c);
             }
         }
     });
@@ -66,8 +72,8 @@ fn start_consumer(
 
         // Flush the queue if window time is over.
         while let Some(_ts) = stream.next().await {
-            let mut _queue = req_queue.lock().unwrap();
-            consume(_queue, response.clone());
+            //let mut _queue = req_queue.lock().unwrap();
+            consume(req_queue.clone(), response.clone());
         }
     });
 }
@@ -111,25 +117,71 @@ fn start_cleaner(response: Arc<Mutex<HashMap<String, Response>>>) {
 
 /// Processing logic.
 /// Do your custom, batched ML predictions here.
-fn consume(mut batch: MutexGuard<Vec<Request>>, response: Arc<Mutex<HashMap<String, Response>>>) {
-    let batch_size = batch.len();
+fn consume(batch: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, Response>>>) {
+    let batch = batch.clone();
+    let response = response.clone();
+    tokio::spawn(async move {
+        {
+            let mut batch = batch.lock().unwrap();
+            let batch_size = batch.len();
 
-    if batch_size == 0 {
-        return;
-    }
+            if batch_size == 0 {
+                return;
+            }
+        }
 
-    println!("START PROCESSING {} elements.", batch_size);
-    // DO the actual heavy lifting here
-    for r in batch.iter().collect::<Vec<&Request>>().into_iter() {
-        let r = r.clone();
-        response.lock().unwrap().insert(
-            r.uuid,
-            Response {
-                data: "hi".into(),
-                produced_time: std::time::Instant::now(),
-            },
-        );
-    }
+        let client = PredictionClient::connect("http://[::1]:8080").await; //.expect("wtf");
 
-    batch.clear();
+        match client {
+            Ok(mut client) => {
+                println!("START PROCESSING {} elements.", 10);
+                // DO the actual heavy lifting here
+
+                let batch_copy;
+                {
+                    let mut batch = batch.lock().unwrap();
+                    batch_copy = batch.iter().map(|r| r.clone()).collect::<Vec<Request>>(); //.clone();
+                    batch.clear();
+                }
+
+                let mut inputs = vec![];
+                let mut uuids = vec![];
+                for req in batch_copy {
+
+                    inputs.push(req.data);
+                    uuids.push(req.uuid);
+                }
+                
+                let pred_request = PredictionRequest { input: inputs, uuid: uuids };
+                // unroll batch
+                let request = tonic::Request::new(pred_request);
+                // send request
+                let prediction_response = client.predict(request).await;
+
+                match prediction_response {
+                    Ok(prediction_response) => {
+
+                        let mut preds = prediction_response.into_inner();
+                        // iterate and add responses
+                        while let Some(el) = preds.next().await {
+                            
+                            let el = el.unwrap();
+
+                            response.lock().unwrap().insert(
+                                el.uuid,
+                                Response {
+                                    data: el.prediction,
+                                    produced_time: std::time::Instant::now(),
+                                },
+                            );
+                        }
+                        
+                    }
+                    Err(_) => todo!(),
+                }
+            }
+            Err(_) => todo!(),
+        }
+
+    });
 }

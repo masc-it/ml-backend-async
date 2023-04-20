@@ -23,7 +23,7 @@ pub mod prediction {
 #[tokio::main]
 async fn main() {
     
-    test_grpc().await;
+    //test_grpc().await;
     let (tx, rx) = tokio::sync::mpsc::channel(100);
     let queue = Arc::new(Mutex::new(vec![]));
     let response = Arc::new(Mutex::new(HashMap::default()));
@@ -50,7 +50,7 @@ async fn main() {
 }
 
 
-async fn test_grpc() {
+/* async fn test_grpc() {
     let mut client = PredictionClient::connect("http://[::1]:8080").await.unwrap();
 
     let request = tonic::Request::new(PredictionRequest {
@@ -58,7 +58,7 @@ async fn test_grpc() {
       });
       let response = client.predict(request).await.unwrap();
       println!("{}", response.into_inner().prediction);
-}
+} */
 
 /// GET - Prediction endpoint
 /// This will immediately return a task ID.

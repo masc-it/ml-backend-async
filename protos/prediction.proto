@@ -2,13 +2,16 @@ syntax = "proto3";
 package prediction;
 
 service Prediction {
-    rpc Predict (PredictionRequest) returns (PredictionResponse);
+    rpc Predict (PredictionRequest) returns (stream PredictionResponse);
 }
 
 message PredictionRequest {
-  string input = 1;
+  repeated string input = 1;
+  repeated string uuid = 2;
 }
 
 message PredictionResponse {
     string prediction = 1;
+    string uuid = 2;
+    int64 duration = 3;
 }
