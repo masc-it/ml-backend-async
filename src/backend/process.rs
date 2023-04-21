@@ -1,10 +1,12 @@
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc},
 };
 
-use tokio::{sync::mpsc::Receiver, time};
+use rand::Rng;
+use tokio::{sync::{mpsc::Receiver, Mutex}, time};
 use tokio_stream::{wrappers::IntervalStream, StreamExt};
+use tonic::transport::Channel;
 
 use crate::{
     backend::{Request, Response, QUEUE_MAX_SIZE, QUEUE_MAX_WAIT_TIME, RESPONSE_CLEANING_TIME},
@@ -19,9 +21,10 @@ pub fn start_actors(
     req_queue: Arc<Mutex<Vec<Request>>>,
     rx: Receiver<Request>,
     response: Arc<Mutex<HashMap<String, Response>>>,
+    clients: Arc<Mutex<Vec<PredictionClient<Channel>>>>,
 ) {
-    start_producer(rx, req_queue.clone(), response.clone());
-    start_consumer(req_queue.clone(), response.clone());
+    start_producer(rx, req_queue.clone(), response.clone(), clients.clone());
+    start_consumer(req_queue.clone(), response.clone(), clients.clone());
     start_cleaner(response.clone());
 }
 
@@ -32,13 +35,14 @@ fn start_producer(
     mut rx: Receiver<Request>,
     req_queue: Arc<Mutex<Vec<Request>>>,
     response: Arc<Mutex<HashMap<String, Response>>>,
+    clients: Arc<Mutex<Vec<PredictionClient<Channel>>>>,
 ) {
     tokio::spawn(async move {
         println!("SPAWNED PRODUCER THREAD");
 
         while let Some(data) = rx.recv().await {
             
-            let mut _queue = req_queue.lock().unwrap();
+            let mut _queue = req_queue.lock().await;
             _queue.push(data);
             let queue_len = _queue.len();
         
@@ -46,7 +50,7 @@ fn start_producer(
 
             // Flush the queue if full
             if queue_len >= QUEUE_MAX_SIZE {
-                consume(req_queue.clone(), response.clone());
+                consume(req_queue.clone(), response.clone(), clients.clone());
             }
             
         }
@@ -58,6 +62,8 @@ fn start_producer(
 fn start_consumer(
     req_queue: Arc<Mutex<Vec<Request>>>,
     response: Arc<Mutex<HashMap<String, Response>>>,
+    clients: Arc<Mutex<Vec<PredictionClient<Channel>>>>,
+
 ) {
     tokio::spawn(async move {
         println!("SPAWNED TEMPORIZED CONSUMER");
@@ -69,7 +75,7 @@ fn start_consumer(
         // Flush the queue if window time is over.
         while let Some(_ts) = stream.next().await {
             //let mut _queue = req_queue.lock().unwrap();
-            consume(req_queue.clone(), response.clone());
+            consume(req_queue.clone(), response.clone(), clients.clone());
         }
     });
 }
@@ -88,7 +94,7 @@ fn start_cleaner(response: Arc<Mutex<HashMap<String, Response>>>) {
 
         // Clean up the response map
         while let Some(_ts) = stream.next().await {
-            let mut res_guard = response_2.lock().unwrap();
+            let mut res_guard = response_2.lock().await;
 
             if res_guard.len() == 0 {
                 continue;
@@ -111,83 +117,80 @@ fn start_cleaner(response: Arc<Mutex<HashMap<String, Response>>>) {
     });
 }
 
+
+type GrpcChannel = Arc<Mutex<Vec<PredictionClient<Channel>>>>;
 /// Processing logic.
 /// Do your custom, batched ML predictions here.
-fn consume(request_queue: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, Response>>>) {
+fn consume(request_queue: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, Response>>>, clients: GrpcChannel) {
     let batch = request_queue.clone();
     let response = response.clone();
     tokio::spawn(async move {
-        let batch_size;
         
-        {
-            let batch = batch.lock().unwrap();
-            batch_size = batch.len();
+        let mut batch = batch.lock().await;
+        let batch_size = batch.len();
 
-            if batch_size == 0 {
-                return;
-            }
+        if batch_size == 0 {
+            return;
         }
         
-        let client = PredictionClient::connect("http://[::1]:8080").await; //.expect("wtf");
+        let mut client;
+        
+        let clients = clients.lock().await;
+        let i = rand::thread_rng().gen_range(0..clients.len());
+        client = clients[i].clone();
+        drop(clients);
 
-        match client {
-            Ok(mut client) => {
-                println!("START PROCESSING {} elements.", batch_size);
-                // DO the actual heavy lifting here
+        println!("START PROCESSING {} elements.", batch_size);
+        // DO the actual heavy lifting here
 
-                let mut inputs = vec![];
-                let mut uuids = vec![];
-                {
-                    let mut batch = request_queue.lock().unwrap();
+        let mut inputs = vec![];
+        let mut uuids = vec![];
+        {
+            //let mut batch = request_queue.lock().await;
 
-                    if batch.len() == 0 {
-                        return;
-                    }
-                    for req in batch.iter() {
-                        inputs.push(req.data.clone());
-                        uuids.push(req.uuid.clone());
-                    }
+            /* if batch.len() == 0 {
+                return;
+            } */
+            for req in batch.iter() {
+                inputs.push(req.data.clone());
+                uuids.push(req.uuid.clone());
+            }
 
-                    batch.clear();
-                    //drop(batch);
+            batch.clear();
+            //drop(batch);
+        }
+
+        let t0 = std::time::Instant::now();
+        let pred_request = PredictionRequest { input: inputs, uuid: uuids };
+        // unroll batch
+        let request = tonic::Request::new(pred_request);
+        // send request
+        let prediction_response = client.predict(request).await;
+
+        match prediction_response {
+            Ok(prediction_response) => {
+
+                let mut preds = prediction_response.into_inner();
+                // iterate and add responses
+                while let Some(el) = preds.next().await {
+                    
+                    let el = el.unwrap();
+
+                    response.lock().await.insert(
+                        el.uuid,
+                        Response {
+                            data: el.prediction,
+                            produced_time: std::time::Instant::now(),
+                        },
+                    );
                 }
-
-                let t0 = std::time::Instant::now();
-                let pred_request = PredictionRequest { input: inputs, uuid: uuids };
-                // unroll batch
-                let request = tonic::Request::new(pred_request);
-                // send request
-                let prediction_response = client.predict(request).await;
-
-                match prediction_response {
-                    Ok(prediction_response) => {
-
-                        let mut preds = prediction_response.into_inner();
-                        // iterate and add responses
-                        while let Some(el) = preds.next().await {
-                            
-                            let el = el.unwrap();
-
-                            response.lock().unwrap().insert(
-                                el.uuid,
-                                Response {
-                                    data: el.prediction,
-                                    produced_time: std::time::Instant::now(),
-                                },
-                            );
-                        }
-                        println!("got response in {}", t0.elapsed().as_millis());
-                        
-                    }
-                    Err(e) => {
-                        println!("err: {}", e);
-                    },
-                }
+                println!("got response in {}", t0.elapsed().as_millis());
+                
             }
             Err(e) => {
-                println!("{}", e);
+                println!("err: {}", e);
             },
         }
-
+            
     });
 }

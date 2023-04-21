@@ -1,8 +1,9 @@
 use serde::Deserialize;
+use tokio::sync::Mutex;
 
 use std::{
     collections::HashMap,
-    sync::{Arc, Mutex},
+    sync::{Arc},
 };
 
 pub static QUEUE_MAX_SIZE: usize = 1024;

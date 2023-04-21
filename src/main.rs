@@ -3,12 +3,13 @@ use axum::{
     routing::get,
     Router,
 };
-use prediction::{prediction_client::PredictionClient, PredictionRequest};
+use prediction::prediction_client::PredictionClient;
+use tokio::sync::Mutex;
 
 use std::{
     collections::HashMap,
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    sync::{Arc},
 };
 use uuid::Uuid;
 
@@ -28,7 +29,19 @@ async fn main() {
     let request_queue = Arc::new(Mutex::new(vec![]));
     let response_store = Arc::new(Mutex::new(HashMap::default()));
 
-    start_actors(request_queue.clone(), rx, response_store.clone());
+    let mut clients = vec![];
+    for _i in 0..10 {
+        let client = PredictionClient::connect("http://[::1]:8080").await;
+
+        if let Ok(pred_client) = client {
+            clients.push(pred_client);
+        }
+    }
+
+    println!("{}", &clients.len());
+    let clients = Arc::new(Mutex::new(clients));
+
+    start_actors(request_queue.clone(), rx, response_store.clone(), clients);
 
     let shared_state = Arc::new(App {
         queue: request_queue,
@@ -71,7 +84,7 @@ async fn get_predict(State(state): State<Arc<App>>) -> String {
 /// to check if your prediction is ready or not.
 async fn get_retrieve(Query(params): Query<Params>, State(state): State<Arc<App>>) -> String {
     let id = &params.id;
-    let mut sink = state.response.lock().unwrap();
+    let mut sink = state.response.lock().await;
     let res = match sink.get(id) {
         Some(v) => v.data.clone(),
         None => "retry".into(),
@@ -83,6 +96,6 @@ async fn get_retrieve(Query(params): Query<Params>, State(state): State<Arc<App>
 
 async fn get_size(State(state): State<Arc<App>>) -> String {
 
-    let sink = state.response.lock().unwrap();
+    let sink = state.response.lock().await;
     sink.len().to_string()
 }
