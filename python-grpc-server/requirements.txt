@@ -1,0 +1,5 @@
+transformers
+torch
+grpcio
+grpcio-tools
+locust

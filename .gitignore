@@ -1,4 +1,5 @@
 /target
 .env
 *.txt
+!requirements.txt
 __pycache__
