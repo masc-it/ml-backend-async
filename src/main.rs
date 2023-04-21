@@ -24,7 +24,7 @@ pub mod prediction {
 async fn main() {
     
     //test_grpc().await;
-    let (tx, rx) = tokio::sync::mpsc::channel(100);
+    let (tx, rx) = tokio::sync::mpsc::channel(1000);
     let queue = Arc::new(Mutex::new(vec![]));
     let response = Arc::new(Mutex::new(HashMap::default()));
 
@@ -70,7 +70,7 @@ async fn get_predict(State(state): State<Arc<App>>) -> String {
         .tx
         .send(Request {
             uuid: uuid.clone(),
-            data: "INPUT DATA FROM USER".into(),
+            data: "Via Bari 56 Molfetta 70056".into(),
         })
         .await;
 

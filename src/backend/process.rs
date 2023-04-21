@@ -37,19 +37,18 @@ fn start_producer(
         println!("SPAWNED PRODUCER THREAD");
 
         while let Some(data) = rx.recv().await {
-            let queue_len;
-            {
-                let mut _queue = req_queue.lock().unwrap();
-                _queue.push(data);
-                queue_len = _queue.len();
-            }
-
+            
+            let mut _queue = req_queue.lock().unwrap();
+            _queue.push(data);
+            let queue_len = _queue.len();
+        
             //println!("{} elements in queue awaiting", &queue_len);
 
             // Flush the queue if full
             if queue_len >= QUEUE_MAX_SIZE {
                 consume(req_queue.clone(), response.clone());
             }
+            
         }
     });
 }
@@ -119,6 +118,7 @@ fn consume(batch: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, 
     let response = response.clone();
     tokio::spawn(async move {
         let batch_size;
+        
         {
             let batch = batch.lock().unwrap();
             batch_size = batch.len();
@@ -127,7 +127,7 @@ fn consume(batch: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, 
                 return;
             }
         }
-
+        
         let client = PredictionClient::connect("http://[::1]:8080").await; //.expect("wtf");
 
         match client {
@@ -139,13 +139,17 @@ fn consume(batch: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, 
                 let mut uuids = vec![];
                 {
                     let mut batch = batch.lock().unwrap();
+
+                    if batch.len() == 0 {
+                        return;
+                    }
                     for req in batch.iter() {
                         inputs.push(req.data.clone());
                         uuids.push(req.uuid.clone());
                     }
 
                     batch.clear();
-                    drop(batch);
+                    //drop(batch);
                 }
 
                 let t0 = std::time::Instant::now();
@@ -175,10 +179,14 @@ fn consume(batch: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, 
                         println!("got response in {}", t0.elapsed().as_millis());
                         
                     }
-                    Err(_) => todo!(),
+                    Err(e) => {
+                        println!("err: {}", e);
+                    },
                 }
             }
-            Err(_) => todo!(),
+            Err(e) => {
+                println!("{}", e);
+            },
         }
 
     });
