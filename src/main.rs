@@ -25,15 +25,15 @@ async fn main() {
     
     //test_grpc().await;
     let (tx, rx) = tokio::sync::mpsc::channel(1000);
-    let queue = Arc::new(Mutex::new(vec![]));
-    let response = Arc::new(Mutex::new(HashMap::default()));
+    let request_queue = Arc::new(Mutex::new(vec![]));
+    let response_store = Arc::new(Mutex::new(HashMap::default()));
 
-    start_actors(queue.clone(), rx, response.clone());
+    start_actors(request_queue.clone(), rx, response_store.clone());
 
     let shared_state = Arc::new(App {
-        queue,
+        queue: request_queue,
         tx,
-        response,
+        response: response_store,
     });
 
     let app = Router::new()
@@ -49,17 +49,6 @@ async fn main() {
         .await
         .unwrap();
 }
-
-
-/* async fn test_grpc() {
-    let mut client = PredictionClient::connect("http://[::1]:8080").await.unwrap();
-
-    let request = tonic::Request::new(PredictionRequest {
-        input: "hellooo".into()
-      });
-      let response = client.predict(request).await.unwrap();
-      println!("{}", response.into_inner().prediction);
-} */
 
 /// GET - Prediction endpoint
 /// This will immediately return a task ID.

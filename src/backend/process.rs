@@ -113,8 +113,8 @@ fn start_cleaner(response: Arc<Mutex<HashMap<String, Response>>>) {
 
 /// Processing logic.
 /// Do your custom, batched ML predictions here.
-fn consume(batch: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, Response>>>) {
-    let batch = batch.clone();
+fn consume(request_queue: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, Response>>>) {
+    let batch = request_queue.clone();
     let response = response.clone();
     tokio::spawn(async move {
         let batch_size;
@@ -138,7 +138,7 @@ fn consume(batch: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, 
                 let mut inputs = vec![];
                 let mut uuids = vec![];
                 {
-                    let mut batch = batch.lock().unwrap();
+                    let mut batch = request_queue.lock().unwrap();
 
                     if batch.len() == 0 {
                         return;
