@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    sync::{Arc},
+    sync::{Arc, atomic::Ordering},
 };
 
 use rand::Rng;
@@ -13,6 +13,11 @@ use crate::{
     prediction::{prediction_client::PredictionClient, PredictionRequest},
 };
 
+use super::StoreMemory;
+
+type GrpcChannels = Arc<Vec<PredictionClient<Channel>>>;
+
+
 /// Start the main actors
 /// 1. Producer => Collect user requests in batches
 /// 2. Consumer => Run processing on such requests
@@ -20,12 +25,12 @@ use crate::{
 pub fn start_actors(
     req_queue: Arc<Mutex<Vec<Request>>>,
     rx: Receiver<Request>,
-    response: Arc<Mutex<HashMap<String, Response>>>,
-    clients: Arc<Mutex<Vec<PredictionClient<Channel>>>>,
+    store_memory: Arc<StoreMemory>,
+    grpc_channels: GrpcChannels,
 ) {
-    start_producer(rx, req_queue.clone(), response.clone(), clients.clone());
-    start_consumer(req_queue.clone(), response.clone(), clients.clone());
-    start_cleaner(response.clone());
+    start_producer(rx, req_queue.clone(), store_memory.clone(), grpc_channels.clone());
+    start_consumer(req_queue.clone(), store_memory.clone(), grpc_channels.clone());
+    //start_cleaner(store_memory.clone());
 }
 
 /// Producer actor.
@@ -34,8 +39,8 @@ pub fn start_actors(
 fn start_producer(
     mut rx: Receiver<Request>,
     req_queue: Arc<Mutex<Vec<Request>>>,
-    response: Arc<Mutex<HashMap<String, Response>>>,
-    clients: Arc<Mutex<Vec<PredictionClient<Channel>>>>,
+    store_memory: Arc<StoreMemory>,
+    grpc_channels: GrpcChannels,
 ) {
     tokio::spawn(async move {
         println!("SPAWNED PRODUCER THREAD");
@@ -50,7 +55,7 @@ fn start_producer(
 
             // Flush the queue if full
             if queue_len >= QUEUE_MAX_SIZE {
-                consume(req_queue.clone(), response.clone(), clients.clone());
+                consume(req_queue.clone(), store_memory.clone(), grpc_channels.clone());
             }
             
         }
@@ -61,8 +66,8 @@ fn start_producer(
 /// Process batched request if timeout is reached.
 fn start_consumer(
     req_queue: Arc<Mutex<Vec<Request>>>,
-    response: Arc<Mutex<HashMap<String, Response>>>,
-    clients: Arc<Mutex<Vec<PredictionClient<Channel>>>>,
+    store_memory: Arc<StoreMemory>,
+    grpc_channels: GrpcChannels,
 
 ) {
     tokio::spawn(async move {
@@ -75,7 +80,7 @@ fn start_consumer(
         // Flush the queue if window time is over.
         while let Some(_ts) = stream.next().await {
             //let mut _queue = req_queue.lock().unwrap();
-            consume(req_queue.clone(), response.clone(), clients.clone());
+            consume(req_queue.clone(), store_memory.clone(), grpc_channels.clone());
         }
     });
 }
@@ -118,12 +123,12 @@ fn start_cleaner(response: Arc<Mutex<HashMap<String, Response>>>) {
 }
 
 
-type GrpcChannel = Arc<Mutex<Vec<PredictionClient<Channel>>>>;
 /// Processing logic.
 /// Do your custom, batched ML predictions here.
-fn consume(request_queue: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<String, Response>>>, clients: GrpcChannel) {
+fn consume(request_queue: Arc<Mutex<Vec<Request>>>, store_memory: Arc<StoreMemory>, grpc_channels: GrpcChannels) {
     let batch = request_queue.clone();
-    let response = response.clone();
+
+    let store_memory  = store_memory.clone();
     tokio::spawn(async move {
         
         let mut batch = batch.lock().await;
@@ -133,34 +138,26 @@ fn consume(request_queue: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<
             return;
         }
         
-        let mut client;
-        
-        let clients = clients.lock().await;
-        let i = rand::thread_rng().gen_range(0..clients.len());
-        client = clients[i].clone();
-        drop(clients);
+        //let clients = clients.lock().await;
+        let i = rand::thread_rng().gen_range(0..grpc_channels.len());
+        let mut client = grpc_channels[i].clone();
 
         println!("START PROCESSING {} elements.", batch_size);
         // DO the actual heavy lifting here
 
         let mut inputs = vec![];
         let mut uuids = vec![];
-        {
-            //let mut batch = request_queue.lock().await;
-
-            /* if batch.len() == 0 {
-                return;
-            } */
-            for req in batch.iter() {
-                inputs.push(req.data.clone());
-                uuids.push(req.uuid.clone());
-            }
-
-            batch.clear();
-            //drop(batch);
+        
+        for req in batch.iter() {
+            inputs.push(req.data.clone());
+            uuids.push(req.uuid.clone());
         }
 
+        batch.clear();
+        drop(batch);
+        
         let t0 = std::time::Instant::now();
+        let real_batch_size = inputs.len();
         let pred_request = PredictionRequest { input: inputs, uuid: uuids };
         // unroll batch
         let request = tonic::Request::new(pred_request);
@@ -170,20 +167,25 @@ fn consume(request_queue: Arc<Mutex<Vec<Request>>>, response: Arc<Mutex<HashMap<
         match prediction_response {
             Ok(prediction_response) => {
 
-                let mut preds = prediction_response.into_inner();
+                let prediction_response = prediction_response.into_inner();
                 // iterate and add responses
-                while let Some(el) = preds.next().await {
-                    
-                    let el = el.unwrap();
+                //while let Some(el) = preds.next().await {
+                let predictions = prediction_response.prediction.iter();
+                let uuids = prediction_response.uuid.iter();
+                
+                let mut response_map = store_memory.response_map.lock().await;
+                for (prediction, request_id) in predictions.zip(uuids) {
 
-                    response.lock().await.insert(
-                        el.uuid,
+                    response_map.insert(
+                        request_id.to_owned(),
                         Response {
-                            data: el.prediction,
+                            data: prediction.to_owned(),
                             produced_time: std::time::Instant::now(),
                         },
                     );
                 }
+
+                store_memory.response_map_size.fetch_add(real_batch_size, Ordering::SeqCst);
                 println!("got response in {}", t0.elapsed().as_millis());
                 
             }

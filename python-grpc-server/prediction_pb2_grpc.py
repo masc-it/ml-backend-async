@@ -14,7 +14,7 @@ class PredictionStub(object):
         Args:
             channel: A grpc.Channel.
         """
-        self.Predict = channel.unary_stream(
+        self.Predict = channel.unary_unary(
                 '/prediction.Prediction/Predict',
                 request_serializer=prediction__pb2.PredictionRequest.SerializeToString,
                 response_deserializer=prediction__pb2.PredictionResponse.FromString,
@@ -33,7 +33,7 @@ class PredictionServicer(object):
 
 def add_PredictionServicer_to_server(servicer, server):
     rpc_method_handlers = {
-            'Predict': grpc.unary_stream_rpc_method_handler(
+            'Predict': grpc.unary_unary_rpc_method_handler(
                     servicer.Predict,
                     request_deserializer=prediction__pb2.PredictionRequest.FromString,
                     response_serializer=prediction__pb2.PredictionResponse.SerializeToString,
@@ -59,7 +59,7 @@ class Prediction(object):
             wait_for_ready=None,
             timeout=None,
             metadata=None):
-        return grpc.experimental.unary_stream(request, target, '/prediction.Prediction/Predict',
+        return grpc.experimental.unary_unary(request, target, '/prediction.Prediction/Predict',
             prediction__pb2.PredictionRequest.SerializeToString,
             prediction__pb2.PredictionResponse.FromString,
             options, channel_credentials,

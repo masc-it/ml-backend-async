@@ -13,7 +13,7 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10prediction.proto\x12\nprediction\"0\n\x11PredictionRequest\x12\r\n\x05input\x18\x01 \x03(\t\x12\x0c\n\x04uuid\x18\x02 \x03(\t\"H\n\x12PredictionResponse\x12\x12\n\nprediction\x18\x01 \x01(\t\x12\x0c\n\x04uuid\x18\x02 \x01(\t\x12\x10\n\x08\x64uration\x18\x03 \x01(\x03\x32X\n\nPrediction\x12J\n\x07Predict\x12\x1d.prediction.PredictionRequest\x1a\x1e.prediction.PredictionResponse0\x01\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x10prediction.proto\x12\nprediction\"0\n\x11PredictionRequest\x12\r\n\x05input\x18\x01 \x03(\t\x12\x0c\n\x04uuid\x18\x02 \x03(\t\"H\n\x12PredictionResponse\x12\x12\n\nprediction\x18\x01 \x03(\t\x12\x0c\n\x04uuid\x18\x02 \x03(\t\x12\x10\n\x08\x64uration\x18\x03 \x03(\x03\x32V\n\nPrediction\x12H\n\x07Predict\x12\x1d.prediction.PredictionRequest\x1a\x1e.prediction.PredictionResponseb\x06proto3')
 
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, globals())
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'prediction_pb2', globals())
@@ -25,5 +25,5 @@ if _descriptor._USE_C_DESCRIPTORS == False:
   _PREDICTIONRESPONSE._serialized_start=82
   _PREDICTIONRESPONSE._serialized_end=154
   _PREDICTION._serialized_start=156
-  _PREDICTION._serialized_end=244
+  _PREDICTION._serialized_end=242
 # @@protoc_insertion_point(module_scope)

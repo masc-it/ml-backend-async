@@ -17,6 +17,8 @@ mod backend;
 
 use backend::{start_actors, App, Params, Request};
 
+use crate::backend::StoreMemory;
+
 pub mod prediction {
     tonic::include_proto!("prediction");
 }
@@ -24,10 +26,14 @@ pub mod prediction {
 #[tokio::main]
 async fn main() {
     
-    //test_grpc().await;
     let (tx, rx) = tokio::sync::mpsc::channel(1000);
     let request_queue = Arc::new(Mutex::new(vec![]));
-    let response_store = Arc::new(Mutex::new(HashMap::default()));
+    let response_map = Arc::new(Mutex::new(HashMap::default()));
+
+    let store_memory = Arc::new(StoreMemory {
+        response_map,
+        response_map_size: 0.into()
+    });
 
     let mut clients = vec![];
     for _i in 0..10 {
@@ -39,14 +45,14 @@ async fn main() {
     }
 
     println!("{}", &clients.len());
-    let clients = Arc::new(Mutex::new(clients));
+    let clients = Arc::new(clients);
 
-    start_actors(request_queue.clone(), rx, response_store.clone(), clients);
+    start_actors(request_queue.clone(), rx, store_memory.clone(), clients);
 
     let shared_state = Arc::new(App {
         queue: request_queue,
         tx,
-        response: response_store,
+        store_memory
     });
 
     let app = Router::new()
@@ -84,18 +90,18 @@ async fn get_predict(State(state): State<Arc<App>>) -> String {
 /// to check if your prediction is ready or not.
 async fn get_retrieve(Query(params): Query<Params>, State(state): State<Arc<App>>) -> String {
     let id = &params.id;
-    let mut sink = state.response.lock().await;
-    let res = match sink.get(id) {
+    let response_map = &state.store_memory.response_map;
+    let res = match response_map.lock().await.get(id) {
         Some(v) => v.data.clone(),
         None => "retry".into(),
     };
 
-    sink.remove(id);
+    //response_map.remove(id);
     res
 }
 
 async fn get_size(State(state): State<Arc<App>>) -> String {
 
-    let sink = state.response.lock().await;
-    sink.len().to_string()
+    let response_map_size = &state.store_memory.response_map_size.load(std::sync::atomic::Ordering::Relaxed);
+    return response_map_size.to_string();
 }

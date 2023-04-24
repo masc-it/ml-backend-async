@@ -3,7 +3,7 @@ use tokio::sync::Mutex;
 
 use std::{
     collections::HashMap,
-    sync::{Arc},
+    sync::{Arc, atomic::AtomicUsize},
 };
 
 pub static QUEUE_MAX_SIZE: usize = 1024;
@@ -22,10 +22,14 @@ pub struct Response {
     pub produced_time: std::time::Instant,
 }
 
+pub struct StoreMemory {
+    pub response_map: Arc<Mutex<HashMap<String, Response>>>,
+    pub response_map_size: AtomicUsize
+}
 pub struct App {
     pub queue: Arc<Mutex<Vec<Request>>>,
     pub tx: tokio::sync::mpsc::Sender<Request>,
-    pub response: Arc<Mutex<HashMap<String, Response>>>,
+    pub store_memory: Arc<StoreMemory>
 }
 
 #[derive(Debug, Deserialize)]

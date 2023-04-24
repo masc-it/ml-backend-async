@@ -58,10 +58,8 @@ class PredictionService(prediction_grpc.PredictionServicer):
         
         #print(len(batch))
         preds = self.model.predict(batch) # this consumes the iterator
-        #print(len(preds))
-        for pred, uuid in zip(preds, request.uuid):
-            result = {'prediction': json.dumps(pred), "uuid": uuid}
-            yield prediction.PredictionResponse(**result)
+        result = {'prediction': [json.dumps(pred) for pred in preds], "uuid": request.uuid}
+        return prediction.PredictionResponse(**result)
 
 def serve():
     
