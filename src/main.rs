@@ -44,7 +44,7 @@ async fn main() {
         }
     }
 
-    println!("{}", &clients.len());
+    println!("We have {} grpc channels ready to use.", &clients.len());
     let clients = Arc::new(clients);
 
     start_actors(request_queue.clone(), rx, store_memory.clone(), clients);
@@ -78,7 +78,7 @@ async fn get_predict(State(state): State<Arc<App>>) -> String {
         .tx
         .send(Request {
             uuid: uuid.clone(),
-            data: "Via Bari 56 Molfetta 70056".into(),
+            data: "Mary works at Netflix in California.".into(),
         })
         .await;
 

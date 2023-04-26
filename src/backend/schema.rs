@@ -7,7 +7,7 @@ use std::{
 };
 
 pub static QUEUE_MAX_SIZE: usize = 1024;
-pub static QUEUE_MAX_WAIT_TIME: u64 = 2000; //ms
+pub static QUEUE_MAX_WAIT_TIME: u64 = 500; // ms
 pub static RESPONSE_CLEANING_TIME: u64 = 1000 * 60 * 30; // clean response map every 30 minutes
 
 #[derive(Debug, Clone)]

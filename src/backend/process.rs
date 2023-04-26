@@ -30,7 +30,7 @@ pub fn start_actors(
 ) {
     start_producer(rx, req_queue.clone(), store_memory.clone(), grpc_channels.clone());
     start_consumer(req_queue.clone(), store_memory.clone(), grpc_channels.clone());
-    //start_cleaner(store_memory.clone());
+    start_cleaner(store_memory.clone());
 }
 
 /// Producer actor.
@@ -87,8 +87,7 @@ fn start_consumer(
 
 /// Cleaner actor.
 /// Clean up stale responses after some time (TTL)
-fn start_cleaner(response: Arc<Mutex<HashMap<String, Response>>>) {
-    let response_2 = response.clone();
+fn start_cleaner(store_memory: Arc<StoreMemory>,) {
 
     tokio::spawn(async move {
         println!("SPAWNED CLEANER THREAD");
@@ -99,25 +98,20 @@ fn start_cleaner(response: Arc<Mutex<HashMap<String, Response>>>) {
 
         // Clean up the response map
         while let Some(_ts) = stream.next().await {
-            let mut res_guard = response_2.lock().await;
+            let mut res_guard = store_memory.response_map.lock().await;
 
             if res_guard.len() == 0 {
                 continue;
             }
-            println!("cleaning...");
-            let res_copy = res_guard
-                .iter()
-                .collect::<Vec<_>>()
-                .into_iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect::<Vec<_>>();
 
-            for (k, v) in &res_copy {
-                if v.produced_time.elapsed().as_millis() >= RESPONSE_CLEANING_TIME as u128 {
-                    println!("removing: {:?}", k);
-                    res_guard.remove(k);
-                }
-            }
+            let num_el_before = res_guard.len();
+            res_guard.retain(|_, v| {
+                v.produced_time.elapsed().as_millis() < RESPONSE_CLEANING_TIME as u128
+            });
+
+            let num_el_after = res_guard.len();
+
+            println!("Removed {} elapsed elements from store memory.", num_el_after - num_el_before);
         }
     });
 }
@@ -126,25 +120,23 @@ fn start_cleaner(response: Arc<Mutex<HashMap<String, Response>>>) {
 /// Processing logic.
 /// Do your custom, batched ML predictions here.
 fn consume(request_queue: Arc<Mutex<Vec<Request>>>, store_memory: Arc<StoreMemory>, grpc_channels: GrpcChannels) {
-    let batch = request_queue.clone();
-
-    let store_memory  = store_memory.clone();
+    
     tokio::spawn(async move {
         
-        let mut batch = batch.lock().await;
+        let mut batch = request_queue.lock().await;
         let batch_size = batch.len();
 
         if batch_size == 0 {
             return;
         }
-        
-        //let clients = clients.lock().await;
+
+        // get random GRPC predictor        
         let i = rand::thread_rng().gen_range(0..grpc_channels.len());
         let mut client = grpc_channels[i].clone();
 
         println!("START PROCESSING {} elements.", batch_size);
-        // DO the actual heavy lifting here
-
+        
+        // Prepare payload for grpc request
         let mut inputs = vec![];
         let mut uuids = vec![];
         
@@ -152,7 +144,6 @@ fn consume(request_queue: Arc<Mutex<Vec<Request>>>, store_memory: Arc<StoreMemor
             inputs.push(req.data.clone());
             uuids.push(req.uuid.clone());
         }
-
         batch.clear();
         drop(batch);
         
