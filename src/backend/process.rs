@@ -131,10 +131,6 @@ fn consume(request_queue: Arc<Mutex<Vec<Request>>>, store_memory: Arc<StoreMemor
             return;
         }
 
-        // get random GRPC predictor        
-        let i = rand::thread_rng().gen_range(0..grpc_channels.len());
-        let mut client = grpc_channels[i].clone();
-
         println!("START PROCESSING {} elements.", batch_size);
         
         // Prepare payload for grpc request
@@ -148,20 +144,23 @@ fn consume(request_queue: Arc<Mutex<Vec<Request>>>, store_memory: Arc<StoreMemor
         batch.clear();
         drop(batch);
         
+        // get random GRPC predictor        
+        let i = rand::thread_rng().gen_range(0..grpc_channels.len());
+        let mut client = grpc_channels[i].clone();
+
         let t0 = std::time::Instant::now();
         let real_batch_size = inputs.len();
-        let pred_request = PredictionRequest { input: inputs, uuid: uuids };
-        // unroll batch
-        let request = tonic::Request::new(pred_request);
+        
         // send request
+        let pred_request = PredictionRequest { input: inputs, uuid: uuids };
+        let request = tonic::Request::new(pred_request);
         let prediction_response = client.predict(request).await;
 
         match prediction_response {
             Ok(prediction_response) => {
 
                 let prediction_response = prediction_response.into_inner();
-                // iterate and add responses
-                //while let Some(el) = preds.next().await {
+                // iterate and collect responses
                 let predictions = prediction_response.prediction.iter();
                 let uuids = prediction_response.uuid.iter();
                 
