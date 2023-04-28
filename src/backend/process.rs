@@ -98,20 +98,21 @@ fn start_cleaner(store_memory: Arc<StoreMemory>,) {
 
         // Clean up the response map
         while let Some(_ts) = stream.next().await {
-            let mut res_guard = store_memory.response_map.lock().await;
 
-            if res_guard.len() == 0 {
-                continue;
+            store_memory.response_map.edit(|response_map| {
+            if response_map.len() == 0 {
+                return;
             }
 
-            let num_el_before = res_guard.len();
-            res_guard.retain(|_, v| {
+            let num_el_before = response_map.len();
+            response_map.retain(|_, v| {
                 v.produced_time.elapsed().as_millis() < RESPONSE_CLEANING_TIME as u128
             });
 
-            let num_el_after = res_guard.len();
+            let num_el_after = response_map.len();
 
             println!("Removed {} elapsed elements from store memory.", num_el_after - num_el_before);
+        });
         }
     });
 }
@@ -164,17 +165,19 @@ fn consume(request_queue: Arc<Mutex<Vec<Request>>>, store_memory: Arc<StoreMemor
                 let predictions = prediction_response.prediction.iter();
                 let uuids = prediction_response.uuid.iter();
                 
-                let mut response_map = store_memory.response_map.lock().await;
-                for (prediction, request_id) in predictions.zip(uuids) {
+                store_memory.response_map.edit(|response_map| {
 
-                    response_map.insert(
-                        request_id.to_owned(),
-                        Response {
-                            data: prediction.to_owned(),
-                            produced_time: std::time::Instant::now(),
-                        },
-                    );
-                }
+                    for (prediction, request_id) in predictions.zip(uuids) {
+    
+                        response_map.insert(
+                            request_id.to_owned(),
+                            Response {
+                                data: prediction.to_owned(),
+                                produced_time: std::time::Instant::now(),
+                            },
+                        );
+                    }
+                });
 
                 store_memory.response_map_size.fetch_add(real_batch_size, Ordering::SeqCst);
                 println!("got response in {}", t0.elapsed().as_millis());

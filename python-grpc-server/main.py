@@ -63,7 +63,7 @@ class PredictionService(prediction_grpc.PredictionServicer):
 
 def serve():
     
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=8), maximum_concurrent_rpcs=None)
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=8))
     prediction_grpc.add_PredictionServicer_to_server(PredictionService(), server)
     server.add_insecure_port('[::1]:8080')
     server.start()

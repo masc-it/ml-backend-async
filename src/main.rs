@@ -4,6 +4,7 @@ use axum::{
     Router,
 };
 use prediction::prediction_client::PredictionClient;
+use sync_cow::SyncCow;
 use tokio::sync::Mutex;
 
 use std::{
@@ -28,7 +29,7 @@ async fn main() {
     
     let (tx, rx) = tokio::sync::mpsc::channel(1000);
     let request_queue = Arc::new(Mutex::new(vec![]));
-    let response_map = Arc::new(Mutex::new(HashMap::default()));
+    let response_map = Arc::new(SyncCow::new(HashMap::default()));
 
     let store_memory = Arc::new(StoreMemory {
         response_map,
@@ -90,8 +91,8 @@ async fn get_predict(State(state): State<Arc<App>>) -> String {
 /// to check if your prediction is ready or not.
 async fn get_retrieve(Query(params): Query<Params>, State(state): State<Arc<App>>) -> String {
     let id = &params.id;
-    let response_map = &state.store_memory.response_map;
-    let res = match response_map.lock().await.get(id) {
+    let response_map = &*state.store_memory.response_map.read();
+    let res = match response_map.get(id) {
         Some(v) => v.data.clone(),
         None => "retry".into(),
     };
